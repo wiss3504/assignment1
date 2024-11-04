@@ -1,0 +1,87 @@
+#include <mpi.h>
+#include <stdio.h>
+#include <math.h>
+#include <time.h>
+
+// Function to evaluate the curve (y = f(x))
+float f(float x) {
+    return x * x ; // Example: y = x^2
+}
+
+// Function to compute the area of a trapezoid
+float seq_trapezoid_area(float a, float b, float n) {
+    float area = 0.0f;
+    float d = (b-a)/n;
+    for (int i = 0; i < n; i++) {
+      float x = a+i*d;
+        area += f(x) + f(x+d);
+    }
+    return area * d / 2.0f;
+}
+
+float par_trapezoid_area(float a, float b, int n, int rank, int size){
+      float d = (b-a)/n;
+      float reg = (b-a)/size; //region for each processor
+      float start = a + rank*reg;
+      float end = start + reg;
+      float local_area = 0.0f;
+      for(int i = 0; i < n / size; i++){
+            float x = start + i*d;
+            local_area += f(x) + f(x+d);
+      }
+      return local_area * d / 2.0f;
+}
+
+int main(int argc, char** argv) {
+    int rank, size;
+    float a = 0.0f, b = 1.0f;  // Limits of integration
+    int n;
+    float start, end, local_area, total_area;
+    double seq_time;
+   
+    MPI_Init(&argc, &argv); // Initialize MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Get rank of the process
+    MPI_Comm_size(MPI_COMM_WORLD, &size); // Get number of processes
+
+    if (rank == 0) {
+        // Get the number of intervals from the user
+        printf("Enter the number of intervals: ");
+        scanf("%d", &n);
+       
+        // Execution time for sequential part
+        clock_t start_time = clock();
+        float sequential_area = seq_trapezoid_area(a, b, n);
+        clock_t end_time = clock();
+        seq_time = (double)(end_time - start_time) / CLOCKS_PER_SEC;
+
+        printf("The total area under the curve (sequential) is: %f\n",  sequential_area);
+        printf("Sequential execution time: %f seconds\n", seq_time);
+    }
+   
+    // Broadcast the number of intervals to all processes
+    MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+   
+    // Calculate the interval size for each process
+   
+    double stime, etime;
+    stime = MPI_Wtime();
+    // Each process calculates the area of its subinterval
+    local_area = par_trapezoid_area(a, b, n, rank, size);
+   
+    // Reduce all local areas to the total area on the root process
+    MPI_Reduce(&local_area, &total_area, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+    etime = MPI_Wtime();
+   
+    if (rank == 0) {
+      
+      double par_time = etime - stime;
+        printf("The total area under the curve is: %f\n", total_area);
+        printf("Parallel execution time: %f seconds\n",par_time);
+       
+        double sp = seq_time / par_time;
+        printf("S(p) = %f\n",sp);
+    }
+   
+    MPI_Finalize(); // Finalize MPI
+    return 0;
+}
